@@ -1,4 +1,4 @@
-package com.marquee.dingrui.marqueeviewlib;
+package com.zhihengkeji.wedgit;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -6,29 +6,40 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.support.annotation.Nullable;
-import android.support.v7.widget.TintTypedArray;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.View;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.widget.TintTypedArray;
+import androidx.lifecycle.DefaultLifecycleObserver;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleObserver;
+import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.OnLifecycleEvent;
+
+import com.apkfuns.logutils.LogUtils;
+import com.zhihengkeji.R;
+
 import java.util.List;
-import java.util.Random;
+
 
 /**
  * Created by ruedy on 2018/3/8.
- */
+ * <p>
+ * 'com.github.385841539:MarqueeView:1.0.0'
+ * log速度过快 ,拿来注掉了  优化内存泄漏  生命周期lifecycle加判断isRoll
+ * */
 
-public class MarqueeView extends View implements Runnable {
+public class MarqueeView extends View implements Runnable, DefaultLifecycleObserver {
     private static final String TAG = "MarqueeView";
     private String string;//最终绘制的文本
     private float speed = 1;//移动速度
     private int textColor = Color.BLACK;//文字颜色,默认黑色
     private float textSize = 12;//文字颜色,默认黑色
-    private int textdistance ;//
-    private int textDistance1= 10;//item间距，dp单位
+    private int textdistance;//
+    private int textDistance1 = 10;//item间距，dp单位
     private String black_count = "";//间距转化成空格距离
 
     private int repetType = REPET_INTERVAL;//滚动模式
@@ -164,7 +175,7 @@ public class MarqueeView extends View implements Runnable {
                 if (xLocation < 0) {
                     int beAppend = (int) ((-xLocation) / contentWidth);
 
-                    Log.e(TAG, "onDraw: ---" + contentWidth + "--------" + (-xLocation) + "------" + beAppend);
+//                    Log.e(TAG, "onDraw: ---" + contentWidth + "--------" + (-xLocation) + "------" + beAppend);
 
                     if (beAppend >= repetCount) {
                         repetCount++;
@@ -204,9 +215,15 @@ public class MarqueeView extends View implements Runnable {
 
     @Override
     public void run() {
+
         while (isRoll && !TextUtils.isEmpty(content)) {
             try {
                 Thread.sleep(10);
+                if (!isRoll) {
+                    LogUtils.d("----------------------双重判断 ");
+                    //防止泄漏
+                    return;
+                }
                 xLocation = xLocation - speed;
                 postInvalidate();//每隔10毫秒重绘视图
             } catch (InterruptedException e) {
@@ -222,18 +239,19 @@ public class MarqueeView extends View implements Runnable {
      */
     public void continueRoll() {
         if (!isRoll) {
-            if (thread != null) {
-                thread.interrupt();
-
-                thread = null;
-            }
-
+//            if (thread != null) {
+//                thread.interrupt();
+//
+//                thread = null;
+//            }
             isRoll = true;
-            thread = new Thread(this);
+            if (thread == null) {
+                thread = new Thread(this);
+            }
             thread.start();//开启死循环线程让文字动起来
-
         }
     }
+
 
     /**
      * 停止滚动
@@ -242,9 +260,41 @@ public class MarqueeView extends View implements Runnable {
         isRoll = false;
         if (thread != null) {
             thread.interrupt();
-            thread = null;
+//            thread = null;
         }
 
+    }
+
+    /**
+     * 界面结束释放线程 不让执行异步了
+     */
+    public void ondestory() {
+        LogUtils.d("-------------------------------------------ma ondestory");
+        isRoll = false;
+        if (thread != null) {
+            thread = null;
+        }
+    }
+
+    @Override
+    public void onDestroy(@NonNull LifecycleOwner owner) {
+        ondestory();
+        DefaultLifecycleObserver.super.onDestroy(owner);
+    }
+
+    @Override
+    public void onPause(@NonNull LifecycleOwner owner) {
+        LogUtils.d("-------------------------------------------ma onPause");
+        stopRoll();
+        DefaultLifecycleObserver.super.onPause(owner);
+    }
+
+    @Override
+    public void onResume(@NonNull LifecycleOwner owner) {
+        LogUtils.d("-------------------------------------------ma onResume");
+        isRoll = false;
+        continueRoll();
+        DefaultLifecycleObserver.super.onResume(owner);
     }
 
     /**
@@ -278,6 +328,7 @@ public class MarqueeView extends View implements Runnable {
 
     /**
      * 设置文字间距  不过如果内容是List形式的，该方法不适用 ,list的数据源，必须在设置setContent之前调用此方法。
+     *
      * @param textdistance2
      */
     public void setTextDistance(int textdistance2) {
@@ -304,6 +355,7 @@ public class MarqueeView extends View implements Runnable {
 
     /**
      * 计算出一个空格的宽度
+     *
      * @return
      */
     private float getBlacktWidth() {
@@ -386,15 +438,19 @@ public class MarqueeView extends View implements Runnable {
 
         if (strings != null && strings.size() != 0) {
 
-            for (int i = 0; i <strings.size(); i++) {
+            for (int i = 0; i < strings.size(); i++) {
 
-                temString = temString+strings.get(i) + black_count;
+                temString = temString + strings.get(i) + black_count;
             }
 
         }
         setContent(temString);
     }
 
+    public void setContent(String content2, Lifecycle observer) {
+        setContent(content2);
+        observer.addObserver(this);
+    }
 
     /**
      * 设置滚动的条目内容  字符串形式的
@@ -402,7 +458,7 @@ public class MarqueeView extends View implements Runnable {
      * @parambt_control00
      */
     public void setContent(String content2) {
-        if (TextUtils.isEmpty(content2)){
+        if (TextUtils.isEmpty(content2)) {
             return;
         }
         if (isResetLocation) {//控制重新设置文本内容的时候，是否初始化xLocation。
@@ -455,6 +511,6 @@ public class MarqueeView extends View implements Runnable {
     }
 
     public void appendContent(String appendContent) {
-//有兴趣的朋友可以自己完善，在现有的基础之上，静默追加新的 公告
+        //有兴趣的朋友可以自己完善，在现有的基础之上，静默追加新的 公告
     }
 }
